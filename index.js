@@ -1,13 +1,31 @@
 const express = require('express');
 const app = express()
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const port = process.env.PORT || 5000;
 
+// require('crypto').randomBytes(64).toString('hex')
+
 // middlewares
 app.use(cors())
 app.use(express.json())
+
+const verifyJWT = (req, res, next)=>{
+    const authorization = req.headers.authorization;
+    if(!authorization){
+        return res.status(401).send({error: true, message: 'Unauthorized Access'})
+    }
+    const token = authorization.split(' ')[1]
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded)=>{
+        if(err){
+            return res.status(401).send({error: true, message: 'Unauthorized Access'})
+        }
+        req.decoded = decoded;
+        next()
+    })
+}
 
 
 const uri = `mongodb+srv://bistroUser:4sONmGeSmk4zuGn5@cluster0.cpvrkgd.mongodb.net/?retryWrites=true&w=majority`;
@@ -31,6 +49,12 @@ async function run() {
         const reviewsCollection = client.db('bistroDB').collection('reviews')
         const cartCollection = client.db('bistroDB').collection('carts')
 
+        app.post('/jwt', (req, res)=>{
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+            res.send({token})
+        })
+
         //user api
         app.get('/users', async(req, res)=>{
             const result = await usersCollection.find().toArray()
@@ -44,6 +68,18 @@ async function run() {
                 return res.send({message: 'User already exist'})
             }
             const result = await usersCollection.insertOne(user)
+            res.send(result)
+        })
+
+        app.patch('/users/admin/:id', async (req, res)=>{
+            const id = req.params.id;
+            const filter = {_id : new ObjectId(id)}
+            const updatedRole = {
+                $set: {
+                    role: 'admin'
+                }
+            }
+            const result = await usersCollection.updateOne(filter, updatedRole)
             res.send(result)
         })
 
@@ -61,10 +97,14 @@ async function run() {
 
         // cart collection apis
 
-        app.get('/carts', async(req, res)=>{
+        app.get('/carts', verifyJWT, async(req, res)=>{
             const email = req.query.email;
             if(!email){
                 res.send([])
+            }
+            const decodedEmail = req.decoded.email;
+            if(email !== decodedEmail){
+                res.status(403).send({error: true, message: 'Forbidden Access'})
             }
             const query = {email: email}
             const result = await cartCollection.find(query).toArray()
