@@ -2,6 +2,7 @@ const express = require('express');
 const app = express()
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const port = process.env.PORT || 5000;
@@ -116,6 +117,13 @@ async function run() {
             res.send(result)
         })
 
+        app.delete('/menu/:id', verifyJWT, verifyAdmin, async(req, res)=>{
+            const id = req.params.id;
+            const query = {_id: new ObjectId(id)}
+            const result = await menuCollection.deleteOne(query)
+            res.send(result)
+        })
+
         // reviews api
         app.get('/reviews', async(req, res)=>{
             const result = await reviewsCollection.find().toArray()
@@ -149,6 +157,20 @@ async function run() {
             const query = {_id : new ObjectId(id)}
             const result = cartCollection.deleteOne(query)
             res.send(result)
+        })
+        // create payment intent
+        app.post('/create-payment-intent', verifyJWT, async(req, res)=>{
+            const {price} = req.body;
+            const amount = price*100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card']
+            })
+            res.send({
+                clientSecret: paymentIntent.client_secret
+            })
+
         })
 
         await client.db("admin").command({ ping: 1 });
